@@ -231,6 +231,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
 
     /* make it easy to tell, by looking at log file, which client executed */
     dr_log(NULL, DR_LOG_ALL, 1, "Client 'inscount' initializing\n");
+    *(volatile char*)NULL = 0;
 #ifdef SHOW_RESULTS
     /* also give notification to stderr */
     if (dr_is_notify_on()) {

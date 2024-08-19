@@ -2828,9 +2828,7 @@ scheduler_tmpl_t<RecordType, ReaderType>::pick_next_input(output_ordinal_t outpu
     auto scoped_lock = acquire_scoped_sched_lock_if_necessary(need_lock);
     input_ordinal_t prev_index = outputs_[output].cur_input;
     input_ordinal_t index = INVALID_INPUT_ORDINAL;
-    int iters = 0;
     while (true) {
-        ++iters;
         if (index < 0) {
             // XXX i#6831: Refactor to use subclasses or templates to specialize
             // scheduler code based on mapping options, to avoid these top-level
