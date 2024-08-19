@@ -124,7 +124,7 @@ static const uint BLOCK_SIZES[] = {
                       sizeof(cbr_fallthrough_linkstub_t), /* 60 dbg / 56 rel */
                   HEAP_ALIGNMENT),
 #    ifndef DEBUG
-    sizeof(instr_t), /* 72 */
+    sizeof(instr_t),                        /* 72 */
 #    endif
 #endif
     /* we keep this bucket even though only 10% or so of normal bbs
@@ -1967,6 +1967,7 @@ vmh_exit(vm_heap_t *vmh, bool contains_stacks)
                                 : (DYNAMO_OPTION(stack_guard_pages) ? PAGE_SIZE : 0)),
                        DYNAMO_OPTION(vmm_block_size)) /
                    DYNAMO_OPTION(vmm_block_size));
+
         uint unfreed_blocks;
         if (!contains_stacks || standalone_library)
             unfreed_blocks = 0;
