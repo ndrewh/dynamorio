@@ -357,7 +357,7 @@ read_uleb128(byte *start, byte *max, byte **next_entry OUT)
 
 app_pc
 get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t load_delta,
-                              const char *name, OUT bool *is_indirect_code)
+                              const char *name, const char *symver, OUT bool *is_indirect_code)
 {
     /* Walk the Mach-O export trie.  We don't support < 10.6 which is when
      * they put this scheme in place.
@@ -477,7 +477,7 @@ get_proc_address_ex(module_base_t lib, const char *name, bool *is_indirect_code 
                                                  */
                                                 (ptr_int_t)ma->start
                                                 : ma->start - ma->os_data.base_address,
-                                            name, is_indirect_code);
+                                            name, NULL /* symver */, is_indirect_code);
     }
     os_get_module_info_unlock();
     LOG(GLOBAL, LOG_SYMBOLS, 2, "%s: %s => " PFX "\n", __func__, name, res);

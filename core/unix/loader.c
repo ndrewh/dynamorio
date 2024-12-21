@@ -158,7 +158,7 @@ privload_locate_and_load(const char *impname, privmod_t *dependent, bool reachab
 static void
 privload_call_lib_func(fp_t func);
 
-static void
+DR_API void
 privload_relocate_mod(privmod_t *mod);
 
 static void
@@ -690,16 +690,16 @@ privload_os_finalize(privmod_t *privmod)
     os_privmod_data_t *opd = (os_privmod_data_t *)privmod->os_privmod_data;
     /* Special handling for standard I/O file descriptors. */
     privmod_stdout = (FILE **)get_proc_address_from_os_data(
-        &opd->os_data, opd->load_delta, LIBC_STDOUT_NAME, NULL);
+        &opd->os_data, opd->load_delta, LIBC_STDOUT_NAME, NULL /* symver */, NULL);
     privmod_stdin = (FILE **)get_proc_address_from_os_data(&opd->os_data, opd->load_delta,
-                                                           LIBC_STDIN_NAME, NULL);
+                                                           LIBC_STDIN_NAME, NULL /* symver */, NULL);
     privmod_stderr = (FILE **)get_proc_address_from_os_data(
-        &opd->os_data, opd->load_delta, LIBC_STDERR_NAME, NULL);
+        &opd->os_data, opd->load_delta, LIBC_STDERR_NAME, NULL /* symver */, NULL);
     /* i#5133: glibc 2.32+ has ld.so call a hardcoded initializer before calling the
      * regular ELF constructors.
      */
     void (*libc_early_init)(bool) = (void (*)(bool))get_proc_address_from_os_data(
-        &opd->os_data, opd->load_delta, LIBC_EARLY_INIT_NAME, NULL);
+        &opd->os_data, opd->load_delta, LIBC_EARLY_INIT_NAME, NULL /* symver */, NULL);
     if (libc_early_init == NULL) {
         return;
     }
@@ -712,7 +712,7 @@ privload_os_finalize(privmod_t *privmod)
     /* Do not try to clobber vars unless we have to: get the libc version. */
 #    define LIBC_GET_VERSION_NAME "gnu_get_libc_version"
     const char *(*libc_ver)(void) = (const char *(*)(void))get_proc_address_from_os_data(
-        &opd->os_data, opd->load_delta, LIBC_GET_VERSION_NAME, NULL);
+        &opd->os_data, opd->load_delta, LIBC_GET_VERSION_NAME, NULL /* symver */, NULL);
     if (libc_ver == NULL)
         return;
     LOG(GLOBAL, LOG_LOADER, 2, "%s: calling %s\n", __FUNCTION__, LIBC_GET_VERSION_NAME);
@@ -727,7 +727,7 @@ privload_os_finalize(privmod_t *privmod)
     }
     os_privmod_data_t *ld_opd = (os_privmod_data_t *)privmod_ld_linux->os_privmod_data;
     byte *glro = get_proc_address_from_os_data(&ld_opd->os_data, ld_opd->load_delta,
-                                               "_rtld_global_ro", NULL);
+                                               "_rtld_global_ro", NULL /* symver */, NULL);
     if (glro == NULL) {
         SYSLOG_INTERNAL_WARNING("glibc 2.34+ i#5437 workaround failed: missed glro");
         return;
@@ -1030,7 +1030,7 @@ get_private_library_address(app_pc modbase, const char *name)
     if (dynamo_heap_initialized) {
         /* opd is initialized */
         os_privmod_data_t *opd = (os_privmod_data_t *)mod->os_privmod_data;
-        res = get_proc_address_from_os_data(&opd->os_data, opd->load_delta, name, NULL);
+        res = get_proc_address_from_os_data(&opd->os_data, opd->load_delta, name, NULL /* symver */, NULL);
         release_recursive_lock(&privload_lock);
         return res;
     } else {
@@ -1050,7 +1050,7 @@ get_private_library_address(app_pc modbase, const char *name)
             release_recursive_lock(&privload_lock);
             return NULL;
         }
-        res = get_proc_address_from_os_data(&os_data, delta, name, NULL);
+        res = get_proc_address_from_os_data(&os_data, delta, name, NULL /* symver */, NULL);
         release_recursive_lock(&privload_lock);
         return res;
     }
@@ -1276,7 +1276,13 @@ privload_relocate_os_privmod_data(os_privmod_data_t *opd, byte *mod_base)
 }
 #endif /* LINUX */
 
-static void
+DR_API void privload_relocate_mod_takelock(privmod_t *mod) {
+    acquire_recursive_lock(&privload_lock);
+    privload_relocate_mod(mod);
+    release_recursive_lock(&privload_lock);
+}
+
+void
 privload_relocate_mod(privmod_t *mod)
 {
 #ifdef LINUX
@@ -1517,6 +1523,7 @@ typedef struct _redirect_import_t {
 static const redirect_import_t redirect_imports[] = {
     { "calloc", (app_pc)redirect_calloc },
     { "malloc", (app_pc)redirect_malloc },
+    { "posix_memalign", (app_pc)redirect_posix_memalign },
     { "free", (app_pc)redirect_free },
     { "realloc", (app_pc)redirect_realloc },
     { "strdup", (app_pc)redirect_strdup },
@@ -1533,8 +1540,8 @@ static const redirect_import_t redirect_imports[] = {
     /* These libc routines can call pthread functions and cause hangs (i#4928) so
      * we use our syscall wrappers instead.
      */
-    { "read", (app_pc)os_read },
-    { "write", (app_pc)os_write },
+    /* { "read", (app_pc)os_read }, */
+    /* { "write", (app_pc)os_write }, */
 #if defined(LINUX) && !defined(ANDROID)
     { "__tls_get_addr", (app_pc)redirect___tls_get_addr },
     { "___tls_get_addr", (app_pc)redirect____tls_get_addr },
@@ -1548,6 +1555,7 @@ static const redirect_import_t redirect_imports[] = {
     { "__gnu_Unwind_Find_exidx", (app_pc)redirect___gnu_Unwind_Find_exidx },
 #    endif
 #endif
+    // { "dlsym", (app_pc)redirect_dlsym },
     { "dlsym", (app_pc)redirect_dlsym },
     /* We need these for clients that don't use libc (i#1747) */
     { "strlen", (app_pc)strlen },
@@ -1569,7 +1577,12 @@ static const redirect_import_t redirect_imports[] = {
     { "memset_chk", (app_pc)memset },
     { "memmove_chk", (app_pc)memmove },
     { "strncpy_chk", (app_pc)strncpy },
+    /* { "__errno_location", (app_pc)__errno_location } */
 };
+
+DR_API redirect_import_t *client_redirect_imports = NULL;
+DR_API int client_redirect_imports_count = 0;
+
 #define REDIRECT_IMPORTS_NUM (sizeof(redirect_imports) / sizeof(redirect_imports[0]))
 
 #ifdef DEBUG
@@ -1599,6 +1612,15 @@ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *na
         }
     }
 #endif
+    for (i = 0; i < client_redirect_imports_count; i++) {
+        if (strcmp(client_redirect_imports[i].name, name) == 0) {
+            if (opd->use_app_imports && client_redirect_imports[i].app_func != NULL)
+                *r_addr = (ptr_uint_t)client_redirect_imports[i].app_func;
+            else
+                *r_addr = (ptr_uint_t)client_redirect_imports[i].func;
+            return true;
+        }
+    }
     for (i = 0; i < REDIRECT_IMPORTS_NUM; i++) {
         if (strcmp(redirect_imports[i].name, name) == 0) {
             if (opd->use_app_imports && redirect_imports[i].app_func != NULL)

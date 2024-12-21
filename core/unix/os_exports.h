@@ -299,6 +299,7 @@ dynamorio_set_envp(char **envp);
 /* drinjectlib wants the libc version while the core wants the private version */
 #    define getenv our_getenv
 #endif
+DR_API
 char *
 our_getenv(const char *name);
 

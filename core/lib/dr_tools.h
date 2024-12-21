@@ -2107,6 +2107,11 @@ DR_API
 void
 dr_thread_yield(void);
 
+DR_API
+/** Current thread gives up its time quantum. */
+void
+dr_set_safe_for_sync(bool safe);
+
 /** Flags controlling the behavior of dr_suspend_all_other_threads_ex(). */
 typedef enum {
     /**

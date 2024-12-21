@@ -455,7 +455,7 @@ os_page_size(void);
 /* This also tries to set other auxv values. */
 void
 os_page_size_init(const char **env, bool env_followed_by_auxv);
-size_t
+DR_API size_t
 os_minsigstksz(void);
 #endif
 bool
@@ -1200,7 +1200,7 @@ load_private_library(const char *filename, bool reachable);
 bool
 unload_private_library(app_pc modbase);
 /* searches in standard paths instead of requiring abs path */
-app_pc
+DR_API app_pc
 locate_and_load_private_library(const char *name, bool reachable);
 void
 loader_init_prologue(void);

@@ -2187,7 +2187,7 @@ DR_API
 bool
 reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, OUT byte *val)
 {
-#ifdef X86
+#if defined(X86)
     if (reg >= DR_REG_START_MMX && reg <= DR_REG_STOP_MMX) {
         get_mmx_val((uint64 *)val, reg - DR_REG_START_MMX);
     } else if (reg >= DR_REG_START_XMM && reg <= DR_REG_STOP_XMM) {
@@ -2206,6 +2206,13 @@ reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, OUT byte *val)
         if (!TEST(DR_MC_MULTIMEDIA, mc->flags) || mc->size != sizeof(dr_mcontext_t))
             return false;
         memcpy(val, &mc->opmask[reg - DR_REG_START_OPMASK], OPMASK_AVX512BW_REG_SIZE);
+    } else {
+        reg_t regval = reg_get_value(reg, mc);
+        *(reg_t *)val = regval;
+    }
+#elif defined(AARCH64)
+    if (reg >= DR_REG_Q0 && reg <= DR_REG_Q31) {
+        memcpy(val, &mc->simd[reg - DR_REG_Q0], 16);
     } else {
         reg_t regval = reg_get_value(reg, mc);
         *(reg_t *)val = regval;

@@ -4548,7 +4548,7 @@ common_heap_free(thread_units_t *tu, void *p_void,
 #ifdef DEBUG_MEMORY
         /* ensure we are freeing memory in a proper unit */
         DOCHECK(CHKLVL_DEFAULT, { /* expensive check */
-                                  ASSERT(find_heap_unit(tu, p, size) != NULL);
+                                  ASSERT(find_heap_unit(tu, p, size) != NULL || *(bool*)0);
         });
 #endif
 

@@ -452,6 +452,14 @@ privload_lookup_by_base(app_pc modbase)
     return NULL;
 }
 
+// HACK
+privmod_t* privload_lookup_by_pc_takelock(app_pc pc) {
+    acquire_recursive_lock(&privload_lock);
+    privmod_t *res = privload_lookup_by_pc(pc);
+    release_recursive_lock(&privload_lock);
+    return res;
+}
+
 /* Lookup the private loaded library by base */
 privmod_t *
 privload_lookup_by_pc(app_pc pc)
@@ -925,20 +933,16 @@ loader_allow_unsafe_static_behavior(void)
  */
 #define REDIRECT_HEADER_SHIFTED (1ULL << IF_X64_ELSE(63, 31))
 
-/* This routine allocates memory from DR's global memory pool.  Unlike
- * dr_global_alloc(), however, we store the size of the allocation in
- * the first few bytes so redirect_free() can retrieve it.  We also align
- * to the standard alignment used by most allocators.  This memory
- * is also not guaranteed-reachable.
- */
-void *
-redirect_malloc(size_t size)
-{
+static void *
+private_alloc(size_t alignment, size_t size) {
     void *mem;
+    if (alignment < STANDARD_HEAP_ALIGNMENT) {
+        alignment = STANDARD_HEAP_ALIGNMENT;
+    }
     /* We need extra space to store the size and alignment bit and ensure the returned
      * pointer is aligned.
      */
-    size_t alloc_size = size + sizeof(size_t) + STANDARD_HEAP_ALIGNMENT - HEAP_ALIGNMENT;
+    size_t alloc_size = size + sizeof(size_t) + alignment - HEAP_ALIGNMENT;
     /* Our header is the size itself, with the top bit stolen to indicate alignment. */
     if (TEST(REDIRECT_HEADER_SHIFTED, alloc_size)) {
         /* We do not support the top bit being set as that conflicts with the bit in
@@ -954,20 +958,38 @@ redirect_malloc(size_t size)
         return NULL;
     }
     ptr_uint_t res =
-        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), STANDARD_HEAP_ALIGNMENT);
+        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), alignment);
     size_t header = alloc_size;
     ASSERT(HEAP_ALIGNMENT * 2 == STANDARD_HEAP_ALIGNMENT);
     ASSERT(!TEST(REDIRECT_HEADER_SHIFTED, header));
     if (res == (ptr_uint_t)mem + sizeof(size_t)) {
         /* Already aligned. */
-    } else if (res == (ptr_uint_t)mem + sizeof(size_t) * 2) {
-        /* DR's alignment is "odd" for double-pointer so we're adding one pointer. */
+    } else if (res >= (ptr_uint_t)mem + sizeof(size_t) * 2) {
         header |= REDIRECT_HEADER_SHIFTED;
+        *(size_t*)(res - 2 * sizeof(size_t)) = res - 2 * sizeof(size_t) - (ptr_uint_t)mem;
     } else
         ASSERT_NOT_REACHED();
     *((size_t *)(res - sizeof(size_t))) = header;
     ASSERT(res + size <= (ptr_uint_t)mem + alloc_size);
     return (void *)res;
+}
+
+/* This routine allocates memory from DR's global memory pool.  Unlike
+ * dr_global_alloc(), however, we store the size of the allocation in
+ * the first few bytes so redirect_free() can retrieve it.  We also align
+ * to the standard alignment used by most allocators.  This memory
+ * is also not guaranteed-reachable.
+ */
+void *
+redirect_malloc(size_t size)
+{
+    return private_alloc(STANDARD_HEAP_ALIGNMENT, size);
+}
+
+int
+redirect_posix_memalign(void **memptr, size_t alignment, size_t size) {
+    *memptr = private_alloc(alignment, size);
+    return 0;
 }
 
 /* Returns the underlying DR allocation's size and starting point, given a
@@ -982,6 +1004,8 @@ redirect_malloc_size_and_start(void *mem, OUT void **start_out)
     if (TEST(REDIRECT_HEADER_SHIFTED, size)) {
         start = size_ptr - 1;
         size &= ~REDIRECT_HEADER_SHIFTED;
+
+        start -= *(size_ptr - 1);
     }
     if (start_out != NULL)
         *start_out = start;
@@ -995,12 +1019,7 @@ redirect_malloc_requested_size(void *mem)
         return 0;
     void *start;
     size_t size = redirect_malloc_size_and_start(mem, &start);
-    size -= sizeof(size_t);
-    if (start != mem) {
-        /* Subtract the extra size for alignment. */
-        size -= sizeof(size_t);
-    }
-    return size;
+    return (size_t)(start + size - mem);
 }
 
 /* This routine allocates memory from DR's global memory pool. Unlike

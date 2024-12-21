@@ -147,6 +147,9 @@ typedef struct _callback_list_t {
  */
 /*
  */
+
+void print_xmm0(int);
+
 #define FAST_COPY_SIZE 5
 #define call_all_ret(ret, retop, postop, vec, type, ...)                         \
     do {                                                                         \
@@ -4729,6 +4732,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
                                        dr_raw_tls_opnd(drcontext, tls_register, tls_offs),
                                        opnd_create_reg(reg)));
         });
+}
+
+DR_API
+void
+dr_set_safe_for_sync(bool safe)
+{
+    dcontext_t *dcontext = get_thread_private_dcontext();
+    CLIENT_ASSERT(!standalone_library, "API not supported in standalone mode");
+    if (IS_CLIENT_THREAD(dcontext))
+        dcontext->client_data->client_thread_safe_for_synch = safe;
+    else
+        dcontext->client_data->at_safe_to_terminate_syscall = safe;
 }
 
 DR_API

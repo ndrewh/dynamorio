@@ -83,6 +83,10 @@ typedef struct _os_module_data_t {
     app_pc chain;           /* absolute addr of hash chain table */
     app_pc dynsym;          /* absolute addr of .dynsym */
     app_pc dynstr;          /* absolute addr of .dynstr */
+    app_pc versym;          /* absolute addr of .gnu.version */
+    app_pc verdef;          /* absolute addr of .gnu.version */
+    size_t verdefnum;          /* absolute addr of .gnu.version */
+    app_pc verdefstrtab;          /* absolute addr of .gnu.version */
     size_t dynstr_size;     /* size of .dynstr */
     size_t symentry_size;   /* size of a .dynsym entry */
     bool has_runpath;       /* is DT_RUNPATH present? */
@@ -167,7 +171,7 @@ extern stdfile_t **privmod_stderr;
 extern stdfile_t **privmod_stdin;
 
 /* loader.c */
-app_pc
+DR_API app_pc
 get_private_library_address(app_pc modbase, const char *name);
 
 bool

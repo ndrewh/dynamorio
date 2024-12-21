@@ -253,12 +253,14 @@ rseq_clear_tls_ptr(dcontext_t *dcontext)
 {
     ASSERT(rseq_tls_offset != 0);
     byte *base = get_app_segment_base(LIB_SEG_TLS);
-    struct rseq *app_rseq = (struct rseq *)(base + rseq_tls_offset);
-    /* We're directly writing this in the cache, so we do not bother with safe_read
-     * or safe_write here either.  We already cannot handle rseq adversarial cases.
-     */
-    if (is_dynamo_address((byte *)(ptr_uint_t)app_rseq->rseq_cs))
-        app_rseq->rseq_cs = 0;
+    if (base > 0) {
+        struct rseq *app_rseq = (struct rseq *)(base + rseq_tls_offset);
+        /* We're directly writing this in the cache, so we do not bother with safe_read
+         * or safe_write here either.  We already cannot handle rseq adversarial cases.
+         */
+        if (is_dynamo_address((byte *)(ptr_uint_t)app_rseq->rseq_cs))
+            app_rseq->rseq_cs = 0;
+    }
 }
 
 int
