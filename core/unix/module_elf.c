@@ -283,6 +283,14 @@ module_fill_os_data(ELF_PROGRAM_HEADER_TYPE *prog_hdr, /* PT_DYNAMIC entry */
                         out_data->symentry_size = (size_t)dyn->d_un.d_val;
                     } else if (dyn->d_tag == DT_RUNPATH) {
                         out_data->has_runpath = true;
+                    } else if (dyn->d_tag == DT_VERSYM) {
+                        out_data->versym = elf_dt_abs_addr(dyn, base, sz, view_size,
+                                                          load_delta, at_map, dyn_reloc);
+                    } else if (dyn->d_tag == DT_VERDEF) {
+                        out_data->verdef = elf_dt_abs_addr(dyn, base, sz, view_size,
+                                                          load_delta, at_map, dyn_reloc);
+                    } else if (dyn->d_tag == DT_VERDEFNUM) {
+                        out_data->verdefnum = (size_t)dyn->d_un.d_val;
 #ifndef ANDROID
                     } else if (dyn->d_tag == DT_CHECKSUM) {
                         out_data->checksum = (size_t)dyn->d_un.d_val;
@@ -645,9 +653,17 @@ elf_sym_matches(ELF_SYM_TYPE *sym, char *strtab, const char *name,
 /* The new GNU hash scheme to improve lookup speed.
  * Can't find good doc to reference here.
  */
+
+#define VERSYM_VERSION 0x7fff
+#define VERSYM_HIDDEN 0x8000
+
+// TODO: Right now, this function does not actually deal with symbol versioning.
+// Most of the work is done, to parse symbol versions / definitions in the loaded library
+// but we don't actually return a specific symbol version (we
+// return the default version for now).
 static app_pc
-gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
-                char *strtab, Elf_Symndx *buckets, Elf_Symndx *chain, ELF_ADDR *bitmask,
+gnu_hash_lookup(const char *name, Elf64_Word *symver_hash, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+                char *strtab, Elf64_Half *symvertab, Elf64_Verdef *verdef, size_t verdefnum, Elf_Symndx *buckets, Elf_Symndx *chain, ELF_ADDR *bitmask,
                 ptr_uint_t bitidx, ptr_uint_t shift, size_t num_buckets,
                 size_t dynstr_size, bool *is_indirect_code)
 {
@@ -680,8 +696,32 @@ gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
                     if (sym->st_value == 0 && ELF_ST_TYPE(sym->st_info) != STT_TLS)
                         continue; /* no value */
                     if (elf_sym_matches(sym, strtab, name, is_indirect_code)) {
-                        res = (app_pc)(symtab[sidx].st_value + load_delta);
-                        break;
+                        if (symvertab) {
+                            Elf64_Half ver = symvertab[sidx];
+                            Elf64_Word verhash = 0;
+                            for (size_t i=0; i<verdefnum; i++) {
+                                // Elf64_Verdaux *vdaux = (Elf64_Verdaux *)((char *)vd + vd->vd_aux);
+                                if (verdef->vd_ndx == (ver & VERSYM_VERSION)) {
+                                    verhash = verdef->vd_hash;
+                                    break;
+                                }
+                                verdef = (Elf64_Verdef *)((char *)verdef + verdef->vd_next);
+                            }
+
+                            if ((ver & VERSYM_HIDDEN) == 0 || ver == VER_NDX_GLOBAL) {
+                                // Default version
+                                res = (app_pc)(symtab[sidx].st_value + load_delta);
+                                LOG(GLOBAL, LOG_LOADER, 2, "%s: found %s default version %hd %d target %d\n", __func__, name, ver, verhash, symver_hash ? *symver_hash : -1);
+                                break;
+                            } else {
+                                // Non-default version
+                                LOG(GLOBAL, LOG_LOADER, 2, "%s: skip %s non-default version %hd %d target %d\n", __func__, name, ver, verhash, symver_hash ? *symver_hash : -1);
+                                if (!res) res = (app_pc)(symtab[sidx].st_value + load_delta);
+                            }
+                        } else {
+                            res = (app_pc)(symtab[sidx].st_value + load_delta);
+                            break;
+                        }
                     }
                 }
             } while (!TEST(1, *harray++));
@@ -695,12 +735,13 @@ gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
  */
 static app_pc
 elf_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
-                char *strtab, Elf_Symndx *buckets, Elf_Symndx *chain, size_t num_buckets,
+                char *strtab, const Elf64_Half* symvertab, Elf_Symndx *buckets, Elf_Symndx *chain, size_t num_buckets,
                 size_t dynstr_size, bool *is_indirect_code)
 {
     Elf_Symndx sidx;
     Elf_Symndx hidx;
     ELF_SYM_TYPE *sym;
+
     app_pc res;
 
     hidx = elf_hash(name);
@@ -728,24 +769,28 @@ elf_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
 /* get the address by using the hashtable information in os_module_data_t */
 app_pc
 get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t load_delta,
-                              const char *name, DR_PARAM_OUT bool *is_indirect_code)
+                              const char *name, const char *symver, DR_PARAM_OUT bool *is_indirect_code)
 {
     if (os_data->hashtab != NULL) {
         Elf_Symndx *buckets = (Elf_Symndx *)os_data->buckets;
         Elf_Symndx *chain = (Elf_Symndx *)os_data->chain;
         ELF_SYM_TYPE *symtab = (ELF_SYM_TYPE *)os_data->dynsym;
+        Elf64_Half *vertab = (Elf64_Half *)os_data->versym;
+        Elf64_Verdef *verdef = (Elf64_Verdef *)os_data->verdef;
+        size_t verdefnum = os_data->verdefnum;
+
         char *strtab = (char *)os_data->dynstr;
         size_t num_buckets = os_data->num_buckets;
         if (os_data->hash_is_gnu) {
             /* The new GNU hash scheme */
-            return gnu_hash_lookup(name, load_delta, symtab, strtab, buckets, chain,
+            return gnu_hash_lookup(name, (Elf64_Word*)symver, load_delta, symtab, strtab, vertab, verdef, verdefnum, buckets, chain,
                                    (ELF_ADDR *)os_data->gnu_bitmask,
                                    (ptr_uint_t)os_data->gnu_bitidx,
                                    (ptr_uint_t)os_data->gnu_shift, num_buckets,
                                    os_data->dynstr_size, is_indirect_code);
         } else {
             /* ELF hash scheme */
-            return elf_hash_lookup(name, load_delta, symtab, strtab, buckets, chain,
+            return elf_hash_lookup(name, load_delta, symtab, strtab, vertab, buckets, chain,
                                    num_buckets, os_data->dynstr_size, is_indirect_code);
         }
     }
@@ -766,7 +811,7 @@ get_proc_address_ex(module_base_t lib, const char *name,
     ma = module_pc_lookup((app_pc)lib);
     if (ma != NULL) {
         res = get_proc_address_from_os_data(
-            &ma->os_data, ma->start - ma->os_data.base_address, name, &is_ifunc);
+            &ma->os_data, ma->start - ma->os_data.base_address, name, NULL /* symver */, &is_ifunc);
         /* XXX: for the case of is_indirect_code being true, should we call
          * the ifunc to get the real symbol location?
          * Current solution is:
@@ -975,6 +1020,8 @@ module_init_os_privmod_data_from_dyn(os_privmod_data_t *opd, ELF_DYNAMIC_ENTRY_T
         case DT_VERNEED: opd->verneed = (app_pc)(dyn->d_un.d_ptr + load_delta); break;
         case DT_VERNEEDNUM: opd->verneednum = dyn->d_un.d_val; break;
         case DT_VERSYM: opd->versym = (ELF_HALF *)(dyn->d_un.d_ptr + load_delta); break;
+        case DT_VERDEF: opd->verdef = (ELF_HALF *)(dyn->d_un.d_ptr + load_delta); break;
+        case DT_VERDEFNUM: opd->verdefnum = dyn->d_un.d_val;; break;
         case DT_RELCOUNT: opd->relcount = dyn->d_un.d_val; break;
         case DT_INIT: opd->init = (fp_t)(dyn->d_un.d_ptr + load_delta); break;
         case DT_FINI: opd->fini = (fp_t)(dyn->d_un.d_ptr + load_delta); break;
@@ -1057,7 +1104,7 @@ module_get_os_privmod_data(app_pc base, size_t size, bool dyn_reloc,
     module_init_os_privmod_data_from_dyn(pd, dyn, load_delta);
     DODEBUG({
         if (get_proc_address_from_os_data(&pd->os_data, pd->load_delta,
-                                          DR_DISALLOW_UNSAFE_STATIC_NAME, NULL) != NULL)
+                                          DR_DISALLOW_UNSAFE_STATIC_NAME, NULL /* symver */, NULL) != NULL)
             disallow_unsafe_static_calls = true;
     });
     pd->use_app_imports = false;
@@ -1103,7 +1150,7 @@ static app_pc
 module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
 {
     app_pc res;
-    const char *name;
+    const char *name, *version;
     bool is_ifunc;
     dcontext_t *dcontext = get_thread_private_dcontext();
 
@@ -1112,9 +1159,11 @@ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
         return NULL;
 
     name = (char *)pd->os_data.dynstr + sym->st_name;
+    version = NULL;
+    // version = pd->os_data.
     LOG(GLOBAL, LOG_LOADER, 3, "sym lookup for %s from %s\n", name, pd->soname);
     /* check my current module */
-    res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, &is_ifunc);
+    res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, NULL /* symver */, &is_ifunc);
     if (res != NULL) {
         if (is_ifunc) {
             TRY_EXCEPT_ALLOW_NO_DCONTEXT(
@@ -1167,7 +1216,7 @@ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
             LOG(GLOBAL, LOG_LOADER, 3, "NOT using libpthread's non-pthread symbol\n");
             res = NULL;
         } else {
-            res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name,
+            res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, NULL /* symver */,
                                                 &is_ifunc);
         }
         if (res != NULL) {

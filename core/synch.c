@@ -517,6 +517,9 @@ should_suspend_client_thread(dcontext_t *dcontext, thread_synch_state_t desired_
 {
     /* Marking un-suspendable does not apply to cleaning/terminating */
     ASSERT(IS_CLIENT_THREAD(dcontext));
+    if (THREAD_SYNCH_IS_CLEANED(desired_state)) {
+        SYSLOG_INTERNAL_INFO("cleaning client thread " TIDFMT, dcontext->owning_thread);
+    }
     return (THREAD_SYNCH_IS_CLEANED(desired_state) || dcontext->client_data->suspendable);
 }
 
@@ -769,7 +772,7 @@ check_wait_at_safe_spot(dcontext_t *dcontext, thread_synch_permission_t cur_stat
 }
 
 /* adjusts the pending synch count */
-void
+DR_API void
 adjust_wait_at_safe_spot(dcontext_t *dcontext, int amt)
 {
     thread_synch_data_t *tsd = (thread_synch_data_t *)dcontext->synch_field;
@@ -1253,8 +1256,8 @@ synch_with_all_threads(thread_synch_state_t desired_synch_state,
 
     LOG(THREAD, LOG_SYNCH, 1,
         "synch with all threads my id = " SZFMT
-        " Giving %d permission and seeking %d state\n",
-        my_id, cur_state, desired_synch_state);
+        " Giving %d permission and seeking %d state, flags %x\n",
+        my_id, cur_state, desired_synch_state, flags);
 
     /* grab all_threads_synch_lock */
     /* since all_threads synch doesn't give any permissions this is necessary

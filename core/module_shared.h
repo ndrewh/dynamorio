@@ -498,6 +498,9 @@ privload_lookup_by_base(app_pc modbase);
 privmod_t *
 privload_lookup_by_pc(app_pc modbase);
 
+DR_API privmod_t *
+privload_lookup_by_pc_takelock(app_pc modbase);
+
 /* name is assumed to be in immutable persistent storage.
  * a copy of path is made.
  */
@@ -620,6 +623,9 @@ redirect_calloc(size_t nmemb, size_t size);
 
 void *
 redirect_malloc(size_t size);
+
+int
+redirect_posix_memalign(void **memptr, size_t alignment, size_t size);
 
 void
 redirect_free(void *mem);

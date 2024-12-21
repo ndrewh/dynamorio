@@ -135,7 +135,7 @@ static size_t client_tls_size = 2 * 4096;
  * good way to guess how big this allocation was.  Instead we use this estimate.
  */
 /* On A32, the pthread is put before tcbhead instead tcbhead being part of pthread */
-static size_t tcb_size = IF_X64_ELSE(0x900, 0x490);
+static size_t tcb_size = IF_X64_ELSE(0xc00, 0x490);
 
 /* thread contol block header type from
  * - sysdeps/x86_64/nptl/tls.h
@@ -157,6 +157,8 @@ typedef struct _tcb_head_t {
 
     ptr_uint_t stack_guard;
     ptr_uint_t pointer_guard;
+    unsigned long int unused[2];
+    unsigned int feature_1;
 #elif defined(AARCH64)
     /* FIXME i#1569: This may be wrong! */
     void *dtv;
@@ -297,7 +299,7 @@ privload_set_pthread_tls_fields(privmod_t *mod, app_pc priv_tls_base)
      */
 #    define PTHREAD_TID_FUNC_NAME "pthread_mutex_consistent"
     void (*tid_using_func)(bool) = (void (*)(bool))get_proc_address_from_os_data(
-        &opd->os_data, opd->load_delta, PTHREAD_TID_FUNC_NAME, NULL);
+        &opd->os_data, opd->load_delta, PTHREAD_TID_FUNC_NAME, NULL, NULL);
     if (tid_using_func == NULL)
         return;
     LOG(GLOBAL, LOG_LOADER, 2, "%s: decoding %s to find tid offset\n", __FUNCTION__,
@@ -415,7 +417,8 @@ privload_copy_tls_block(privmod_t *mod, app_pc priv_tls_base, uint mod_idx)
 void
 privload_mod_tls_primary_thread_init(privmod_t *mod)
 {
-    ASSERT(!dynamo_initialized);
+    // ASSERT(!dynamo_initialized);
+
     /* Copy ELF block for primary thread for use in init funcs (i#2751).
      * We do this after relocs and assume reloc ifuncs don't need this:
      * else we'd have to assume there are no relocs in the TLS blocks.
@@ -440,6 +443,7 @@ privload_tls_init(void *app_tp)
         app_tp);
     dr_tp = heap_mmap(client_tls_alloc_size, MEMPROT_READ | MEMPROT_WRITE,
                       VMM_SPECIAL_MMAP | VMM_PER_THREAD);
+    SYSLOG_INTERNAL_INFO("dr_tp: %p tcb_size: %lx\n", dr_tp, tcb_size);
     ASSERT(APP_LIBC_TLS_SIZE + TLS_PRE_TCB_SIZE + tcb_size <= client_tls_alloc_size);
 #if defined(AARCHXX) || defined(RISCV64)
     /* GDB reads some pthread members (e.g., pid, tid), so we must make sure
@@ -492,6 +496,7 @@ privload_tls_init(void *app_tp)
     dr_tcb->self = dr_tcb;
     /* i#555: replace app's vsyscall with DR's int0x80 syscall */
     dr_tcb->sysinfo = (ptr_uint_t)client_int_syscall;
+    dr_tcb->feature_1 = 0; // this is currently used to say we don't have Intel CET
 #elif defined(AARCHXX) || defined(RISCV64)
     dr_tcb->dtv = NULL;
     dr_tcb->private = NULL;

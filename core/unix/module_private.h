@@ -72,6 +72,8 @@ struct _os_privmod_data_t {
     int verneednum;
     int relcount;
     ELF_HALF *versym;
+    ELF_HALF *verdef;
+    int verdefnum;
 #else
     /* XXX i#1285: MacOS private loader NYI */
 #endif
@@ -123,7 +125,7 @@ module_get_text_section(app_pc file_map, size_t file_size);
 
 app_pc
 get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t delta,
-                              const char *name, bool *is_indirect_code DR_PARAM_OUT);
+                              const char *name, const char *symver, bool *is_indirect_code DR_PARAM_OUT);
 
 bool
 privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *name);

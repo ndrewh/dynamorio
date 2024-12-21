@@ -3792,6 +3792,7 @@ os_thread_sleep(uint64 milliseconds)
         /* not unusual for client threads to use itimers and have their run
          * routine sleep forever
          */
+
         if (count++ > 3 && !IS_CLIENT_THREAD(get_thread_private_dcontext())) {
             ASSERT_CURIOSITY_ONCE(
                 false && "os_thread_sleep interrupted by signal more than 3 times.");
@@ -3880,6 +3881,7 @@ os_thread_suspend(thread_record_t *tr)
         if (ksynch_wait(&ostd->suspended, 0, SUSPEND_DEBUG_TIMEOUT_MS) == -ETIMEDOUT) {
             ASSERT_CURIOSITY(false && "failed to suspend thread in 5s");
         }
+        LOG(GLOBAL, LOG_SYNCH, 2, "os_thread_suspend: suspended = %d for thread %d\n", ksynch_get_value(&ostd->suspended), tr->id);
         if (ksynch_get_value(&ostd->suspended) == 0) {
             /* If it still has to wait, give up the cpu. */
             os_thread_yield();
