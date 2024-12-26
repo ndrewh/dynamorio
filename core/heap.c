@@ -1948,6 +1948,7 @@ vmh_exit(vm_heap_t *vmh, bool contains_stacks)
                                 : (DYNAMO_OPTION(stack_guard_pages) ? PAGE_SIZE : 0)),
                        DYNAMO_OPTION(vmm_block_size)) /
                    DYNAMO_OPTION(vmm_block_size));
+
         uint unfreed_blocks;
         if (!contains_stacks || standalone_library)
             unfreed_blocks = 0;
