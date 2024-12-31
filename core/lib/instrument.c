@@ -3448,6 +3448,7 @@ dr_memory_is_in_client(const byte *pc)
     return is_in_client_lib((app_pc)pc);
 }
 
+DR_API
 void
 instrument_client_lib_loaded(byte *start, byte *end)
 {

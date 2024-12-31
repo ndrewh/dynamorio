@@ -220,6 +220,7 @@ endif ()
 # For cross-compilation this should still work as you're supposed to set this var.
 # X64 mean 64-bit generically, whether AMD64 or AARCH64.
 set(TARGET_ARCH "${CMAKE_SYSTEM_PROCESSOR}" CACHE STRING "Target architecture")
+
 if (TARGET_ARCH MATCHES "^arm64" OR TARGET_ARCH MATCHES "^aarch64")
   set(AARCH64 1)
   set(X64 1)
@@ -641,6 +642,9 @@ if (AARCH64 AND UNIX)
   set(CFLAGS_SVE "-march=armv8-a+sve")
   set(CFLAGS_SVE2 "-march=armv8-a+sve2")
   set(CFLAGS_PAUTH "-march=armv8.3-a -mbranch-protection=standard")
+  # if (MACOS)
+  #   set(CFLAGS_PAUTH "-arch arm64e ${CFLAGS_PAUTH}")
+  # endif()
   set(ASMFLAGS_SVE "-march=armv8-a+sve")
   set(ASMFLAGS_SVE2 "-march=armv8-a+sve2")
   check_sve_processor_and_compiler_support(proc_supports_sve proc_sve_vl)

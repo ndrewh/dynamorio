@@ -2230,6 +2230,7 @@ DECLARE_FREQPROT_VAR(static bool reset_at_nth_thread_triggered, false);
 /* On UNIX, if dstack_in != NULL, the parent of this new thread must have
  * increased uninit_thread_count.
  */
+
 int
 dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
                    bool client_thread)
@@ -2300,11 +2301,18 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
     }
 
     os_tls_init();
+    dr_fprintf(STDERR, "os_thread_init end\n");
     dcontext = create_new_dynamo_context(true /*initial*/, dstack_in, mc);
+    dr_fprintf(STDERR, "create_new_dynamo_context end\n");
     initialize_dynamo_context(dcontext);
+    dr_fprintf(STDERR, "initialize_dynamo_context end\n");
     set_thread_private_dcontext(dcontext);
+    dr_fprintf(STDERR, "set_thread_private_dcontext end\n");
     /* sanity check */
     ASSERT(get_thread_private_dcontext() == dcontext);
+
+    dr_fprintf(STDERR, "santiy check end\n");
+    /* sleep(10); */
 
     /* set local state pointer for access from other threads */
     dcontext->local_state = get_local_state();
@@ -2912,6 +2920,7 @@ dynamorio_take_over_threads(dcontext_t *dcontext)
      * as handling signals.
      */
     dynamo_thread_under_dynamo(dcontext);
+    dr_fprintf(STDERR, "dr_app_started event\n");
     signal_event(dr_app_started);
     SELF_UNPROTECT_DATASEC(DATASEC_RARELY_PROT);
     dynamo_started = true;

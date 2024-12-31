@@ -190,6 +190,8 @@ d_r_internal_error(const char *file, int line, const char *expr)
 #    endif
     );
 
+    sleep(100);
+
     soft_terminate();
 }
 #endif /* defined(INTERNAL) || defined(DEBUG) */

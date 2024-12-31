@@ -1246,7 +1246,7 @@ signal_thread_inherit(dcontext_t *dcontext, void *clone_record)
          * FIXME: are current pending or blocked inherited?
          */
 #ifdef MACOS
-        if (record->app_thread_xsp != 0) {
+        if (record->app_thread_xsp == 0) {
             HEAP_TYPE_FREE(GLOBAL_DCONTEXT, record, clone_record_t, ACCT_THREAD_MGT,
                            true /*prot*/);
         }
@@ -4303,6 +4303,8 @@ send_signal_to_client_and_handle_action(dcontext_t *dcontext, int sig,
                                            &sc_interrupted, blocked);
 }
 
+void sleep(int);
+
 static void
 abort_on_fault(dcontext_t *dcontext, uint dumpcore_flag, app_pc pc, byte *target, int sig,
                sigframe_rt_t *frame, const char *prefix, const char *signame,
@@ -4414,6 +4416,7 @@ abort_on_fault(dcontext_t *dcontext, uint dumpcore_flag, app_pc pc, byte *target
             os_dump_core("post-app-handler attempt at core dump");
     }
 #endif
+    sleep(100);
 
     os_terminate(dcontext, TERMINATE_PROCESS);
     ASSERT_NOT_REACHED();
@@ -5104,11 +5107,13 @@ record_pending_signal(dcontext_t *dcontext, int sig, kernel_ucontext_t *ucxt,
              * Our checks for dstack, etc. in main_signal_handler should
              * have accounted for everything
              */
+            /* receive_now = true; */
             ASSERT_NOT_REACHED();
             abort_on_DR_fault(dcontext, pc, NULL, sig, frame,
                               (sig == SIGSEGV) ? "SEGV" : "other", " unknown");
         }
     }
+    /* dr_fprintf(STDERR, "receive_now=%d\n", receive_now); */
 
     LOG(THREAD, LOG_ASYNCH, 3, "\taction is not SIG_IGN\n");
 #if defined(X86) && defined(LINUX)
@@ -5954,9 +5959,12 @@ main_signal_handler_C(byte *xsp)
              * If so, handle the fault and re-execute it, if it's safe to do so
              * (we document these criteria under DR_MEMPROT_PRETEND_WRITE).
              */
+            dr_fprintf(STDERR, "is_in_client_lib 1\n");
             if (is_write && !is_couldbelinking(dcontext) && OWN_NO_LOCKS(dcontext) &&
                 check_for_modified_code(dcontext, pc, ucxt, target, true /*native*/))
                 break;
+
+            dr_fprintf(STDERR, "is_in_client_lib 2\n");
 #ifdef STATIC_LIBRARY
             /* i#4640: We cannot distinguish the client from DR or the app.  Though
              * it's rare, original app instructions can come here for some app
