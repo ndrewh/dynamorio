@@ -81,6 +81,7 @@
 #    endif
 #    include <mach/mach_traps.h> /* for swtch_pri */
 #    include "include/syscall_mach.h"
+#    define PTHREAD_FUN_OFFSET 0x90
 #endif
 
 #ifdef LINUX
@@ -2319,17 +2320,13 @@ os_tls_init(void)
     memset(segment, 0, PAGE_SIZE);
 #    endif
 
-    dr_fprintf(STDERR, "os_tls_init segment=%p\n", segment);
     ASSERT(segment && "tls segment should not be NULL");
     os_local_state_t *os_tls = (os_local_state_t *)segment;
 
     LOG(GLOBAL, LOG_THREADS, 1, "os_tls_init for thread " TIDFMT "\n",
         d_r_get_thread_id());
 
-    dr_fprintf(STDERR, "fuck1\n", segment);
     ASSERT(!is_thread_tls_initialized());
-
-    dr_fprintf(STDERR, "fuck2\n", segment);
 
     /* store key data in the tls itself */
     os_tls->self = os_tls;
@@ -2343,42 +2340,34 @@ os_tls_init(void)
      * will be overwritten in os_tls_app_seg_init().
      */
     os_tls->os_seg_info.dr_tls_base = segment;
-    dr_fprintf(STDERR, "fuck3\n", segment);
     ASSERT(proc_is_cache_aligned((byte *)os_tls->self + TLS_LOCAL_STATE_OFFSET));
     /* Verify that local_state_extended_t should indeed be used. */
     ASSERT(DYNAMO_OPTION(ibl_table_in_tls));
-    dr_fprintf(STDERR, "fuck4\n", segment);
 
     /* initialize DR TLS seg base before replacing app's TLS in tls_thread_init */
     if (MACHINE_TLS_IS_DR_TLS)
         os_tls_app_seg_init(os_tls, segment);
 
-    dr_fprintf(STDERR, "fuck5\n", segment);
     tls_thread_init(os_tls, segment);
 
     ASSERT(os_tls->tls_type != TLS_TYPE_NONE);
-    dr_fprintf(STDERR, "tmp 1\n");
     /* store type in global var for convenience: should be same for all threads */
     tls_global_type = os_tls->tls_type;
 
     /* FIXME: this should be a SYSLOG fatal error?  Should fall back on !HAVE_TLS?
      * Should have create_ldt_entry() return failure instead of asserting, then.
      */
-    dr_fprintf(STDERR, "tmp 2\n");
 #else
     tls_table = (tls_slot_t *)global_heap_alloc(MAX_THREADS *
                                                 sizeof(tls_slot_t) HEAPACCT(ACCT_OTHER));
     memset(tls_table, 0, MAX_THREADS * sizeof(tls_slot_t));
 #endif
-    dr_fprintf(STDERR, "tmp 3\n");
     if (!first_thread_tls_initialized) {
         first_thread_tls_initialized = true;
         if (last_thread_tls_exited) /* re-attach */
             last_thread_tls_exited = false;
     }
-    dr_fprintf(STDERR, "before assert\n");
     ASSERT(is_thread_tls_initialized());
-    dr_fprintf(STDERR, "after assert\n");
 }
 
 static bool
@@ -4110,7 +4099,6 @@ client_thread_run(void)
     dcontext = get_thread_private_dcontext();
     ASSERT(dcontext != NULL);
     LOG(THREAD, LOG_ALL, 1, "\n***** CLIENT THREAD %d *****\n\n", d_r_get_thread_id());
-    dr_fprintf(STDERR, "client_thread_run 4 \n");
     /* We stored the func and args in particular clone record fields */
     func = (void (*)(void *param))dcontext->next_tag;
     /* Reset any inherited mask (i#2337). */
@@ -4119,7 +4107,6 @@ client_thread_run(void)
     void *arg = (void *)get_clone_record_app_xsp(crec);
     LOG(THREAD, LOG_ALL, 1, "func=" PFX ", arg=" PFX "\n", func, arg);
 
-    dr_fprintf(STDERR, "client_thread_run 5 \n");
     (*func)(arg);
 
     LOG(THREAD, LOG_ALL, 1, "\n***** CLIENT THREAD %d EXITING *****\n\n",
@@ -4148,11 +4135,9 @@ thread_id_t dynamorio_clone_macos(uint flags, byte *newsp, void *ptid, void *tls
 #endif
     thread_act_t new_thread;
 
-    dr_fprintf(STDERR, "thread_create_running\n");
     kern_return_t res = thread_create_running(mach_task_self(), state_flavor, (thread_state_t)&state, state_count, &new_thread);
     ASSERT(res == KERN_SUCCESS && "Failed to create thread with thread_create_running");
 
-    dr_fprintf(STDERR, "thread_create_running success\n");
 
     return new_thread;
 }
@@ -4233,7 +4218,6 @@ dr_create_client_thread(void (*func)(void *param), void *arg)
         ASSERT_NOT_REACHED();
         return false;
     }
-    dr_fprintf(STDERR, "client thread creation success\n");
     return true;
 }
 
@@ -4869,6 +4853,55 @@ exit_thread_syscall(long status)
     dynamorio_syscall(SYSNUM_EXIT_THREAD, 1, status);
 #endif
 }
+
+#if defined(MACOS) && (defined(X86) || defined(AARCH64))
+/* Called from new_bsdthread_intercept (asm) for targeting a bsd thread user function.
+ * new_bsdthread_intercept stored the arg to the user thread func in
+ * mc->xax (X86) or mc->r9 (ARM64).  We're on the app stack -- but this
+ * is a temporary solution. i#1403 covers intercepting in an earlier and better manner.
+ */
+void
+new_bsdthread_setup(priv_mcontext_t *mc)
+{
+    dcontext_t *dcontext;
+    void *crec, *func_arg;
+    /* this is where a new thread first touches other than the dstack,
+     * so we "enter" DR here
+     */
+    ENTERING_DR();
+
+#        if defined(X86)
+    crec = (void *)mc->xax; /* placed there by new_bsdthread_intercept */
+#        elif defined(AARCH64)
+    crec = (void *)mc->r9; /* placed there by new_bsdthread_intercept */
+#        endif
+    func_arg = (void *)get_clone_record_thread_arg(crec);
+    LOG(GLOBAL, LOG_INTERP, 1,
+        "new_thread_setup: thread " TIDFMT ", dstack " PFX " clone record " PFX "\n",
+        d_r_get_thread_id(), get_clone_record_dstack(crec), crec);
+
+    IF_DEBUG(int rc =) dynamo_thread_init(get_clone_record_dstack(crec), mc, crec, false);
+    ASSERT(rc != -1); /* this better be a new thread */
+    dcontext = get_thread_private_dcontext();
+    ASSERT(dcontext != NULL);
+    crec = NULL; /* now freed */
+
+    dynamo_thread_under_dynamo(dcontext);
+
+    /* We assume that the only state that matters is the arg to the function. */
+#        if defined(X86) && defined(X64)
+    mc->rdi = (reg_t)func_arg;
+#        elif defined(X86)
+    *(reg_t *)(mc->xsp + sizeof(reg_t)) = (reg_t)func_arg;
+#        elif defined(AARCH64)
+    mc->r0 = (reg_t)func_arg;
+#        endif
+
+    call_switch_stack(dcontext, dcontext->dstack, (void (*)(void *))d_r_dispatch,
+                      NULL /*not on d_r_initstack*/, false /*shouldn't return*/);
+    ASSERT_NOT_REACHED();
+}
+#    endif /* MACOS */
 
 /* FIXME: this one will not be easily internationalizable
    yet it is easier to have a syslog based Unix implementation with real strings.
@@ -7521,12 +7554,23 @@ pre_system_call(dcontext_t *dcontext)
         void *clone_rec;
         LOG(THREAD, LOG_SYSCALLS, 1,
             "bsdthread_create: thread func " PFX ", arg " PFX "\n", func, func_arg);
+
         handle_clone(dcontext, CLONE_THREAD | CLONE_VM | CLONE_SIGHAND | SIGCHLD);
         clone_rec = create_clone_record(dcontext, NULL, func, func_arg);
         dcontext->sys_param0 = (reg_t)func;
         dcontext->sys_param1 = (reg_t)func_arg;
         *sys_param_addr(dcontext, 0) = (reg_t)new_bsdthread_intercept;
         *sys_param_addr(dcontext, 1) = (reg_t)clone_rec;
+
+#ifdef X64
+        /* Also update the pthread->fun and pthread->arg fields, since _pthread_start uses
+         * them instead of the syscall arg0 on some macOS versions */
+        ASSERT(sys_param(dcontext, 3) && "bsdthread_create pthread argument should not be NULL");
+        *(app_pc*)((byte *)sys_param(dcontext, 3) + PTHREAD_FUN_OFFSET) = (app_pc)new_bsdthread_intercept;
+        /* And the pthread->arg field always followed the pthread->fun field */
+        *(void**)((byte *)sys_param(dcontext, 3) + PTHREAD_FUN_OFFSET + sizeof(app_pc)) = (void*)clone_rec;
+#endif
+
         os_new_thread_pre();
         break;
     }
@@ -10584,19 +10628,15 @@ reset_event(event_t e)
 bool
 wait_for_event(event_t e, int timeout_ms)
 {
-    dr_fprintf(STDERR, "wait for event 1\n");
 #ifdef DEBUG
     dcontext_t *dcontext = get_thread_private_dcontext();
 #endif
-    dr_fprintf(STDERR, "wait for event 1.5\n");
     uint64 start_time = 0, cur_time = 0;
     if (timeout_ms > 0)
         start_time = query_time_millis();
     /* Use a user-space event on Linux, a kernel event on Windows. */
-    dr_fprintf(STDERR, "wait for event 2\n");
     LOG(THREAD, LOG_THREADS, 3, "thread " TIDFMT " waiting for event " PFX "\n",
         d_r_get_thread_id(), e);
-    dr_fprintf(STDERR, "wait for event 3\n");
     do {
         if (ksynch_get_value(&e->signaled) == 1) {
             d_r_mutex_lock(&e->lock);

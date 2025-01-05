@@ -246,6 +246,8 @@ data_section_exit(void);
 #        include <sys/ipc.h>
 #        include <sys/types.h>
 #        include <unistd.h>
+/* unix include files for macOS TLS fix */
+#        include "unix/tls.h"
 #    endif
 
 static uint starttime;
@@ -2247,6 +2249,15 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
         return SUCCESS;
     }
 
+/* macOS aarch64 will sometimes crash when acquiring locks if TLS is NULL */
+#if defined(MACOS) && defined(AARCH64)
+    void *tmp_tls[32] = { 0 };
+    if (!read_thread_register(TLS_REG_LIB)) {
+        write_thread_register(tmp_tls);
+        dr_fprintf(STDERR, "USING TEMP TLS\n");
+    }
+#endif
+
     /* note that ENTERING_DR is assumed to have already happened: in apc handler
      * for win32, in new_thread_setup for linux, in main init for 1st thread
      */
@@ -2301,6 +2312,11 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
     }
 
     os_tls_init();
+
+#if defined(MACOS) && defined(AARCH64)
+    ASSERT((void*)read_thread_register(TLS_REG_LIB) != tmp_tls);
+#endif
+
     dr_fprintf(STDERR, "os_thread_init end\n");
     dcontext = create_new_dynamo_context(true /*initial*/, dstack_in, mc);
     dr_fprintf(STDERR, "create_new_dynamo_context end\n");

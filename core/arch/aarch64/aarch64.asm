@@ -593,8 +593,21 @@ GLOBAL_LABEL(dynamorio_sys_exit:)
 
         DECLARE_FUNC(new_bsdthread_intercept)
 GLOBAL_LABEL(new_bsdthread_intercept:)
-        /* TODO i#5383: Get correct syscall number for svc. */
-        brk 0xb003 /* For now we break with a unique code. */
+        /* We assume we can clobber callee-saved */
+        mov      x9, ARG1 /* This is the clone_rec argument set in pre_system_call */
+
+        /* Push a priv_mcontext on the stack */
+        sub      sp, sp, #PRIV_MCONTEXT_SIZE
+        stp      x0, x1, [sp, #(0 * ARG_SZ*2)]
+        add      x0, sp, #(PRIV_MCONTEXT_SIZE + 16) /* compute original SP */
+        stp      x30, x0, [sp, #(15 * ARG_SZ*2)]
+        str      x30, [sp, #(16 * ARG_SZ*2)] /* save LR as PC */
+
+        CALLC1(save_priv_mcontext_helper, sp)
+
+        CALLC1(GLOBAL_REF(new_bsdthread_setup), sp)
+        /* Should not return */
+        bl       GLOBAL_REF(unexpected_return)
         END_FUNC(new_bsdthread_intercept)
 #endif
 
