@@ -113,4 +113,7 @@ privload_tls_exit(void *dr_tp)
     /* nothing to do */
     ASSERT(ALIGNED(dr_tp - PTHREAD_TLS_OFFSET, PAGE_SIZE));
     heap_munmap(dr_tp - PTHREAD_TLS_OFFSET, PAGE_SIZE, VMM_SPECIAL_MMAP | VMM_PER_THREAD);
+    if ((void*)read_thread_register(TLS_REG_LIB) == dr_tp) {
+        write_thread_register(NULL);
+    }
 }

@@ -5959,12 +5959,10 @@ main_signal_handler_C(byte *xsp)
              * If so, handle the fault and re-execute it, if it's safe to do so
              * (we document these criteria under DR_MEMPROT_PRETEND_WRITE).
              */
-            dr_fprintf(STDERR, "is_in_client_lib 1\n");
             if (is_write && !is_couldbelinking(dcontext) && OWN_NO_LOCKS(dcontext) &&
                 check_for_modified_code(dcontext, pc, ucxt, target, true /*native*/))
                 break;
 
-            dr_fprintf(STDERR, "is_in_client_lib 2\n");
 #ifdef STATIC_LIBRARY
             /* i#4640: We cannot distinguish the client from DR or the app.  Though
              * it's rare, original app instructions can come here for some app

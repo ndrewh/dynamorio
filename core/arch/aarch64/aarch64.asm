@@ -366,9 +366,9 @@ cat_thread_only:
         CALLC0(GLOBAL_REF(dynamo_thread_exit))
 cat_no_thread:
         /* switch to d_r_initstack for cleanup of dstack */
-        AARCH64_ADRP_GOT(GLOBAL_REF(initstack_mutex), x26)
+        AARCH64_ADRP_GOT(GLOBAL_REF(initstack_mutex), x0)
 cat_spin:
-        CALLC2(GLOBAL_REF(atomic_swap), x26, #1)
+        CALLC2(GLOBAL_REF(atomic_swap), x0, #1)
         cbz      w0, cat_have_lock
         yield
         b        cat_spin

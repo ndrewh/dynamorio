@@ -92,13 +92,11 @@ void
 tls_thread_free(tls_type_t tls_type, int index)
 {
     byte **dr_tls_base_addr;
-    os_local_state_t *os_tls;
 
     ASSERT(tls_type == TLS_TYPE_SLOT);
     dr_tls_base_addr = get_dr_tls_base_addr();
     ASSERT(dr_tls_base_addr != NULL);
-    os_tls = (os_local_state_t *)*dr_tls_base_addr;
-    ASSERT(os_tls->self == os_tls);
+
     /* FIXME i#1578: support detach on ARM.  We need some way to
      * determine whether a thread has exited (for deadlock_avoidance_unlock,
      * e.g.) after dcontext and os_tls are freed.  For now we store -1 in this

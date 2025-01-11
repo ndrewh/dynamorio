@@ -2254,7 +2254,6 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
     void *tmp_tls[32] = { 0 };
     if (!read_thread_register(TLS_REG_LIB)) {
         write_thread_register(tmp_tls);
-        dr_fprintf(STDERR, "USING TEMP TLS\n");
     }
 #endif
 
@@ -2317,17 +2316,12 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
     ASSERT((void*)read_thread_register(TLS_REG_LIB) != tmp_tls);
 #endif
 
-    dr_fprintf(STDERR, "os_thread_init end\n");
     dcontext = create_new_dynamo_context(true /*initial*/, dstack_in, mc);
-    dr_fprintf(STDERR, "create_new_dynamo_context end\n");
     initialize_dynamo_context(dcontext);
-    dr_fprintf(STDERR, "initialize_dynamo_context end\n");
     set_thread_private_dcontext(dcontext);
-    dr_fprintf(STDERR, "set_thread_private_dcontext end\n");
     /* sanity check */
     ASSERT(get_thread_private_dcontext() == dcontext);
 
-    dr_fprintf(STDERR, "santiy check end\n");
     /* sleep(10); */
 
     /* set local state pointer for access from other threads */
@@ -2469,6 +2463,7 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
         /* fcache_reset_all_caches_proactively() will unlock */
         fcache_reset_all_caches_proactively(RESET_ALL);
     }
+    dr_fprintf(STDERR, "THREAD_START %d\n", dcontext->thread_record->id);
     return SUCCESS;
 }
 
@@ -2502,6 +2497,7 @@ static int
 dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
                           IF_WINDOWS_(bool detach_stacked_callbacks) bool other_thread)
 {
+    dr_fprintf(STDERR, "THREAD_EXIT %d\n", dcontext->thread_record->id);
     dcontext_t *dcontext_tmp;
 #ifdef WINDOWS
     dcontext_t *dcontext_next;
@@ -2644,6 +2640,14 @@ dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
     synch_thread_exit(dcontext);
     arch_thread_exit(dcontext _IF_WINDOWS(detach_stacked_callbacks));
     os_thread_exit(dcontext, other_thread);
+
+#if defined(MACOS) && defined(AARCH64)
+    void *tmp_tls[32] = { 0 };
+    if (!read_thread_register(TLS_REG_LIB)) {
+        write_thread_register(tmp_tls);
+    }
+#endif
+
     DOLOG(1, LOG_STATS, { dump_thread_stats(dcontext, false); });
 #ifdef KSTATS
     kstat_thread_exit(dcontext);
@@ -2936,7 +2940,6 @@ dynamorio_take_over_threads(dcontext_t *dcontext)
      * as handling signals.
      */
     dynamo_thread_under_dynamo(dcontext);
-    dr_fprintf(STDERR, "dr_app_started event\n");
     signal_event(dr_app_started);
     SELF_UNPROTECT_DATASEC(DATASEC_RARELY_PROT);
     dynamo_started = true;
