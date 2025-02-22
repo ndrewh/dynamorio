@@ -4111,7 +4111,7 @@ client_thread_run(void)
 
     LOG(THREAD, LOG_ALL, 1, "\n***** CLIENT THREAD %d EXITING *****\n\n",
         d_r_get_thread_id());
-    block_cleanup_and_terminate(dcontext, SYS_exit, 0, 0, false /*just thread*/,
+    block_cleanup_and_terminate(dcontext, SYSNUM_EXIT_THREAD, 0, 0, false /*just thread*/,
                                 IF_MACOS_ELSE(dcontext->thread_port, 0), 0);
 }
 

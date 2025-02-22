@@ -40,6 +40,7 @@
 #include "../module_shared.h"
 #include "tls.h"
 #include <mach/mach.h>
+#include "dr_tools.h"
 
 /* clang-only I think */
 #include <ptrauth.h>
@@ -80,8 +81,8 @@ privload_tls_init(void *app_tls)
     }
 
     /* XXX i#1285: implement MacOS private loader */
-    byte *pthread = heap_mmap(PAGE_SIZE, MEMPROT_READ | MEMPROT_WRITE,
-                              VMM_SPECIAL_MMAP | VMM_PER_THREAD);
+    byte *pthread = NULL;
+    ASSERT(vm_allocate(mach_task_self(), (vm_address_t*)&pthread, PAGE_SIZE, true /* anywhere */) == KERN_SUCCESS);
     memset(pthread, 0, PAGE_SIZE);
 
     ASSERT(ALIGNED(pthread, PAGE_SIZE));
@@ -112,8 +113,9 @@ privload_tls_exit(void *dr_tp)
 {
     /* nothing to do */
     ASSERT(ALIGNED(dr_tp - PTHREAD_TLS_OFFSET, PAGE_SIZE));
-    heap_munmap(dr_tp - PTHREAD_TLS_OFFSET, PAGE_SIZE, VMM_SPECIAL_MMAP | VMM_PER_THREAD);
-    if ((void*)read_thread_register(TLS_REG_LIB) == dr_tp) {
-        write_thread_register(NULL);
-    }
+    /* heap_munmap(dr_tp - PTHREAD_TLS_OFFSET, PAGE_SIZE, VMM_SPECIAL_MMAP | VMM_PER_THREAD); */
+    dr_fprintf(STDERR, "privload_tls_exit %p %p\n", dr_tp, read_thread_register(TLS_REG_LIB));
+    /* if ((void*)read_thread_register(TLS_REG_LIB) == dr_tp) { */
+    /*     write_thread_register(NULL); */
+    /* } */
 }

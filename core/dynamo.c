@@ -250,6 +250,10 @@ data_section_exit(void);
 #        include "unix/tls.h"
 #    endif
 
+#    ifdef MACOS
+#        include <mach/mach.h>
+#    endif
+
 static uint starttime;
 
 file_t main_logfile = INVALID_FILE;
@@ -2251,8 +2255,9 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
 
 /* macOS aarch64 will sometimes crash when acquiring locks if TLS is NULL */
 #if defined(MACOS) && defined(AARCH64)
-    void *tmp_tls[32] = { 0 };
+    void *tmp_tls = NULL;
     if (!read_thread_register(TLS_REG_LIB)) {
+        ASSERT(vm_allocate(mach_task_self(), (vm_address_t*)&tmp_tls, PAGE_SIZE, true /* anywhere */) == KERN_SUCCESS);
         write_thread_register(tmp_tls);
     }
 #endif
@@ -2311,10 +2316,6 @@ dynamo_thread_init(byte *dstack_in, priv_mcontext_t *mc, void *os_data,
     }
 
     os_tls_init();
-
-#if defined(MACOS) && defined(AARCH64)
-    ASSERT((void*)read_thread_register(TLS_REG_LIB) != tmp_tls);
-#endif
 
     dcontext = create_new_dynamo_context(true /*initial*/, dstack_in, mc);
     initialize_dynamo_context(dcontext);
@@ -2497,7 +2498,6 @@ static int
 dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
                           IF_WINDOWS_(bool detach_stacked_callbacks) bool other_thread)
 {
-    dr_fprintf(STDERR, "THREAD_EXIT %d\n", dcontext->thread_record->id);
     dcontext_t *dcontext_tmp;
 #ifdef WINDOWS
     dcontext_t *dcontext_next;
@@ -2596,7 +2596,9 @@ dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
      * we called event callbacks.
      */
     if (!other_thread) {
+#if !(defined(MACOS) && defined(AARCH64))
         dynamo_thread_not_under_dynamo(dcontext);
+#endif
 #ifdef WINDOWS
         /* We don't do this inside os_thread_not_under_dynamo b/c we do it in
          * context switches.  os_loader_exit() will call this, but it has no
@@ -2641,12 +2643,12 @@ dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
     arch_thread_exit(dcontext _IF_WINDOWS(detach_stacked_callbacks));
     os_thread_exit(dcontext, other_thread);
 
-#if defined(MACOS) && defined(AARCH64)
-    void *tmp_tls[32] = { 0 };
-    if (!read_thread_register(TLS_REG_LIB)) {
-        write_thread_register(tmp_tls);
-    }
-#endif
+// #if defined(MACOS) && defined(AARCH64)
+//     void *tmp_tls[32] = { 0 };
+//     if (!read_thread_register(TLS_REG_LIB)) {
+//         write_thread_register(tmp_tls);
+//     }
+// #endif
 
     DOLOG(1, LOG_STATS, { dump_thread_stats(dcontext, false); });
 #ifdef KSTATS
@@ -2666,7 +2668,7 @@ dynamo_thread_exit_common(dcontext_t *dcontext, thread_id_t id,
 #endif
 
     /* remove thread from threads hashtable */
-    remove_thread(IF_WINDOWS_(NT_CURRENT_THREAD) id);
+    ASSERT(remove_thread(IF_WINDOWS_(NT_CURRENT_THREAD) id));
 
     dcontext_tmp = dcontext;
 #ifdef WINDOWS
