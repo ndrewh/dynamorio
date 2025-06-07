@@ -293,15 +293,60 @@ pre_execve_ld_preload(const char *dr_path)
     setenv("LD_USE_LOAD_BIAS", "1", false /*!overwrite, let user set it*/);
 }
 
+static ssize_t
+script_file_reader(const char *pathname, void *buf, size_t count)
+{
+    file_t file = os_open(pathname, OS_OPEN_READ);
+    size_t len;
+
+    if (file == INVALID_FILE)
+        return -1;
+    len = os_read(file, buf, count);
+    os_close(file);
+    return len;
+}
+
 /* Environment modifications before executing the child process for early
  * injection.
  */
 static void
 pre_execve_early(dr_inject_info_t *info, const char *exe)
 {
-    setenv(DYNAMORIO_VAR_EXE_PATH, exe, true /*overwrite*/);
+    const char *real_exe = exe;
+    script_interpreter_t script;
+
+    /* 'exe' may be the path to a #! script, but DYNAMORIO_VAR_EXE_PATH is
+     * expected to point to an ELF (i.e. the interpreter).
+     */
+    if (find_script_interpreter(script, exe, script_file_reader) && script->argc != 0) {
+        real_exe = script->argv[0];
+        fprintf(stderr, "real_exe = %s\n", real_exe);
+
+        /* Concatenate new arguments and original arguments. */
+        int orig_argc = 0;
+        int i;
+        const char **orig_argv = info->argv;
+        while (info->argv[orig_argc] != NULL)
+            ++orig_argc;
+
+        if (orig_argc == 0)
+            orig_argc = 1;
+
+        const char **new_argv = calloc(sizeof(char *), (script->argc + orig_argc + 1));
+        for (i = 0; i < script->argc; i++)
+            new_argv[i] = script->argv[i];
+
+        new_argv[script->argc] = exe; /* replaces orig_argv[0] */
+        for (i = 1; i < orig_argc; i++)
+            new_argv[script->argc + i] = orig_argv[i];
+        new_argv[script->argc + orig_argc] = NULL;
+
+        info->argv = new_argv;
+    }
+
+    setenv(DYNAMORIO_VAR_EXE_PATH, real_exe, true /*overwrite*/);
     if (info->no_emulate_brk)
-        setenv(DYNAMORIO_VAR_NO_EMULATE_BRK, exe, true /*overwrite*/);
+        setenv(DYNAMORIO_VAR_NO_EMULATE_BRK, real_exe, true /*overwrite*/);
 }
 
 static void
