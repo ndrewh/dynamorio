@@ -2198,7 +2198,7 @@ DR_API
 bool
 reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, DR_PARAM_OUT byte *val)
 {
-#ifdef X86
+#if defined(X86)
     if (reg >= DR_REG_START_MMX && reg <= DR_REG_STOP_MMX) {
         get_mmx_val((uint64 *)val, reg - DR_REG_START_MMX);
     } else if (reg >= DR_REG_START_XMM && reg <= DR_REG_STOP_XMM) {

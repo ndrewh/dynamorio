@@ -474,6 +474,11 @@ drreg_restore_app_values(void *drcontext, instrlist_t *ilist, instr_t *where, op
                          DR_PARAM_INOUT reg_id_t *swap);
 
 DR_EXPORT
+drreg_status_t
+drreg_restore_app_value(void *drcontext, instrlist_t *ilist, instr_t *where,
+                        reg_id_t app_reg, reg_id_t dst_reg, bool stateful);
+
+DR_EXPORT
 /**
  * Restores the spilled value (typically the application value) for
  * all registers and flags at \p where.

@@ -148,6 +148,9 @@ typedef struct _callback_list_t {
  */
 /*
  */
+
+void print_xmm0(int);
+
 #define FAST_COPY_SIZE 5
 #define call_all_ret(ret, retop, postop, vec, type, ...)                         \
     do {                                                                         \
@@ -872,7 +875,7 @@ instrument_exit_event(void)
     /* support dr_get_mcontext() from the exit event */
     if (!standalone_library)
         get_thread_private_dcontext()->client_data->mcontext_in_dcontext = true;
-    call_all(exit_callbacks, int (*)(),
+    call_all(exit_callbacks, int (*)(void *),
              /* It seems the compiler is confused if we pass no var args
               * to the call_all macro.  Bogus NULL arg */
              NULL);
@@ -885,13 +888,13 @@ instrument_post_attach_event(void)
         ASSERT(post_attach_callbacks.num == 0);
         return;
     }
-    call_all(post_attach_callbacks, int (*)(), NULL);
+    call_all(post_attach_callbacks, int (*)(void *), NULL);
 }
 
 void
 instrument_pre_detach_event(void)
 {
-    call_all(pre_detach_callbacks, int (*)(), NULL);
+    call_all(pre_detach_callbacks, int (*)(void *), NULL);
 }
 
 void
@@ -1492,7 +1495,7 @@ instrument_fork_init(dcontext_t *dcontext)
 void
 instrument_low_on_memory()
 {
-    call_all(low_on_memory_callbacks, int (*)());
+    call_all(low_on_memory_callbacks, int (*)(void *), NULL);
 }
 
 /* PR 536058: split the exit event from thread cleanup, to provide a
@@ -4745,6 +4748,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
                                        dr_raw_tls_opnd(drcontext, tls_register, tls_offs),
                                        opnd_create_reg(reg)));
         });
+}
+
+DR_API
+void
+dr_set_safe_for_sync(bool safe)
+{
+    dcontext_t *dcontext = get_thread_private_dcontext();
+    CLIENT_ASSERT(!standalone_library, "API not supported in standalone mode");
+    if (IS_CLIENT_THREAD(dcontext))
+        dcontext->client_data->client_thread_safe_for_synch = safe;
+    else
+        dcontext->client_data->at_safe_to_terminate_syscall = safe;
 }
 
 DR_API
